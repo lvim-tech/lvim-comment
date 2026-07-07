@@ -1,0 +1,124 @@
+*lvim-comment.txt*    Comment toggling with operators, counts and dot-repeat
+
+==============================================================================
+CONTENTS                                              *lvim-comment*
+
+  1. Introduction ........................... |lvim-comment-intro|
+  2. Setup .................................. |lvim-comment-setup|
+  3. Mappings ............................... |lvim-comment-mappings|
+  4. Commentstring resolution ............... |lvim-comment-resolution|
+  5. API .................................... |lvim-comment-api|
+  6. Command ................................ |lvim-comment-command|
+
+==============================================================================
+1. INTRODUCTION                                 *lvim-comment-intro*
+
+lvim-comment replaces Neovim's built-in linewise `gc` mappings (config-gated)
+so that linewise and blockwise commenting share ONE engine and ONE
+commentstring resolver: `gc{motion}` / `gcc` / visual `gc` toggle line
+comments, `gb{motion}` / `gbb` / visual `gb` toggle a block comment, and a
+charwise same-line `gb` produces a true inline block comment.
+
+The operator is a plain 'operatorfunc' behind |g@|, so counts (`3gcc`) and
+dot-repeat (|.|) come from Vim itself. Toggle semantics: all non-blank lines
+commented -> uncomment; mixed/uncommented -> comment. Linewise commenting
+skips blank lines and aligns markers at the longest common whitespace prefix
+of the range (byte-safe with mixed tabs/spaces). Uncommenting tolerates both
+padded and unpadded markers, so `padding` round-trips either way.
+
+The built-in operator-pending `gc` (the comment-lines textobject, |o_gc|) is
+left alone — it composes with any operator (`dgc`, `ygc`).
+
+==============================================================================
+2. SETUP                                        *lvim-comment-setup*
+>lua
+  require("lvim-comment").setup({
+      padding = true,   -- one space between marker and text
+      sticky = true,    -- keep the cursor where the operator was triggered
+      mappings = {
+          basic = true, -- gc/gb operators, gcc/gbb, visual gc/gb
+          extra = true, -- gco / gcO / gcA
+      },
+      languages = {},   -- per-language/filetype { line, block } overrides,
+                        -- e.g. { lua = { line = "-- %s", block = "--[[ %s ]]" } }
+  })
+<
+`languages` keys are treesitter LANGUAGE names (they win inside embedded code
+too) or FILETYPES (buffer-wide); values are tables with optional `line` and
+`block` commentstrings (each must contain `%s`).
+
+==============================================================================
+3. MAPPINGS                                     *lvim-comment-mappings*
+
+With `mappings.basic` (all count-aware and dot-repeatable):
+
+  gc{motion}    Toggle line comments over the motion (gcip, gc3j, gcG)
+  gcc           Toggle line comment on the current line (3gcc = 3 lines)
+  gb{motion}    Toggle a block comment over the motion
+  gbb           Toggle a block comment on the current line
+  {Visual}gc    Toggle line comments on the selection
+  {Visual}gb    Toggle a block comment (charwise selection -> inline)
+
+With `mappings.extra`:
+
+  gco           Open a commented line below, enter insert mode
+  gcO           Open a commented line above, enter insert mode
+  gcA           Append a comment at the end of the line, insert mode
+
+Languages without a block form (python, yaml, ...) degrade blockwise
+operators to the linewise toggle.
+
+<Plug> mappings for custom keys (set basic/extra to false):
+
+  <Plug>(lvim-comment-toggle-linewise)           n  operator
+  <Plug>(lvim-comment-toggle-blockwise)          n  operator
+  <Plug>(lvim-comment-toggle-linewise-current)   n  current line
+  <Plug>(lvim-comment-toggle-blockwise-current)  n  current line
+  <Plug>(lvim-comment-toggle-linewise-visual)    x  selection
+  <Plug>(lvim-comment-toggle-blockwise-visual)   x  selection
+  <Plug>(lvim-comment-insert-below)              n  gco
+  <Plug>(lvim-comment-insert-above)              n  gcO
+  <Plug>(lvim-comment-insert-eol)                n  gcA
+
+==============================================================================
+4. COMMENTSTRING RESOLUTION                     *lvim-comment-resolution*
+
+The commentstring is resolved per POSITION (the range's first non-blank
+character), not per buffer:
+
+  1. `languages` — the user's override, keyed by the treesitter language at
+     the position first, then by the buffer's filetype;
+  2. the built-in per-language table (~60 languages), keyed on the treesitter
+     language at the position via the buffer's parser tree, injections
+     included — lua-in-markdown, css-in-html and jsx get their own markers.
+     Inside jsx MARKUP (element/fragment/attribute, but not inside a `{ ... }`
+     expression) the pair becomes `{/* %s */}`;
+  3. the buffer's 'commentstring' (line form only).
+
+Treesitter is used through the core API only (vim.treesitter.get_parser ->
+language_for_range); lvim-ts merely guarantees parsers are installed. Without
+a parser the resolver silently falls to the filetype row (filetype aliases:
+sh -> bash, typescriptreact -> tsx, cs -> c_sharp, ...).
+
+==============================================================================
+5. API                                          *lvim-comment-api*
+
+  setup({opts})                  Configure and define mappings/command.
+  toggle_lines({s}, {e}, {buf})  Toggle LINE comments on the inclusive
+                                 1-based line range.
+  toggle_block({s}, {e}, {buf})  Toggle a BLOCK comment around the range
+                                 (falls back to toggle_lines without a
+                                 block form).
+  resolve({buf}, {pos})          The effective { line?, block? } pair at
+                                 { row0, col0 } (default: the cursor), or
+                                 nil when nothing applies.
+
+==============================================================================
+6. COMMAND                    *lvim-comment-command* *:LvimComment*
+
+  :[range]LvimComment [line|block]
+
+Toggles comments over the range (default: the current line, `line` form).
+`:'<,'>LvimComment block` wraps the selection in a block comment.
+
+vim:tw=78:ts=8:noet:ft=help:norl:
