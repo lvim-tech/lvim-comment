@@ -83,9 +83,11 @@ function M.insert_eol()
     local line = api.nvim_buf_get_lines(0, row - 1, row, false)[1] or ""
     -- One separating space, unless the line is empty or already ends in whitespace.
     local sep = (line == "" or line:match("%s$")) and "" or " "
-    local left = line .. sep .. l .. pad
-    api.nvim_buf_set_lines(0, row - 1, row, false, { left .. (r ~= "" and pad .. r or "") })
-    enter_insert(row, #left, r)
+    -- APPEND at EOL with set_text (not set_lines rewriting the whole line) so every extmark/mark anchored on
+    -- the line — diagnostics, gitsigns word-diff, user marks — survives the `gcA`.
+    local prefix = sep .. l .. pad
+    api.nvim_buf_set_text(0, row - 1, #line, row - 1, #line, { prefix .. (r ~= "" and pad .. r or "") })
+    enter_insert(row, #line + #prefix, r)
 end
 
 return M

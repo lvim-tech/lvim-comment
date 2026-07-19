@@ -140,7 +140,11 @@ local JSX_MARKUP = {
 ---@param pos integer[]  { row0, col0 }
 ---@return boolean
 local function in_jsx_markup(bufnr, pos)
-    local ok, node = pcall(vim.treesitter.get_node, { bufnr = bufnr, pos = { pos[1], pos[2] } })
+    -- ignore_injections = false: resolve the node from the INJECTED tree (a jsx/tsx fence in markdown, a
+    -- script region in html), so the JSX_MARKUP ancestor walk actually sees the jsx nodes and picks `{/* */}`
+    -- instead of `//`. For a root-tsx buffer the tree is the same, so the result is unchanged.
+    local ok, node =
+        pcall(vim.treesitter.get_node, { bufnr = bufnr, pos = { pos[1], pos[2] }, ignore_injections = false })
     if not ok or not node then
         return false
     end

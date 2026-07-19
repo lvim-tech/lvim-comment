@@ -19,6 +19,10 @@ commentstring resolver: `gc{motion}` / `gcc` / visual `gc` toggle line
 comments, `gb{motion}` / `gbb` / visual `gb` toggle a block comment, and a
 charwise same-line `gb` produces a true inline block comment.
 
+A BLOCKWISE-visual (|CTRL-V|) selection toggles the WHOLE lines it spans, not
+the column rectangle — the column bounds are ignored (the same behaviour as the
+mainstream comment plugins). Use charwise `v` for a same-line inline block.
+
 The operator is a plain 'operatorfunc' behind |g@|, so counts (`3gcc`) and
 dot-repeat (|.|) come from Vim itself. Toggle semantics: all non-blank lines
 commented -> uncomment; mixed/uncommented -> comment. Linewise commenting
