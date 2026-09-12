@@ -41,7 +41,7 @@ mappings here.
 
 ## Requirements
 
-- Neovim **>= 0.10**
+- Neovim **>= 0.12**
 - [lvim-utils](https://github.com/lvim-tech/lvim-utils) (optional — shared `merge`)
 - [lvim-ts](https://github.com/lvim-tech/lvim-ts) (optional — installs treesitter
   parsers on demand; core `vim.treesitter` does the actual resolution)
