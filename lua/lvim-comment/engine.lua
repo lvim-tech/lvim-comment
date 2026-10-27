@@ -4,9 +4,14 @@
 -- all non-blank lines commented → uncomment; mixed/uncommented → comment. Linewise
 -- commenting skips blank lines and aligns every marker at the LONGEST COMMON whitespace
 -- prefix of the range (a byte-wise common prefix — unlike a "shortest indent" heuristic
--- it can never splice a tab-indented marker into a space-indented line). Uncommenting
--- tolerates both padded and unpadded markers, so `padding` can be flipped at any time
--- and old comments still round-trip.
+-- it can never splice a tab-indented marker into a space-indented line).
+--
+-- Uncommenting is the exact INVERSE of what the current `padding` writes: with padding on one
+-- space is absorbed on each side, with padding off nothing is. That is what makes a toggle
+-- reversible for every input, including a line indented deeper than the range's common indent —
+-- whose extra indent sits after the marker and was being eaten. The cost is in the other
+-- direction and is deliberate: with padding OFF, a comment written earlier WITH a pad uncomments
+-- to text with one leading space. With padding on (the default) both old forms round-trip.
 --
 ---@module "lvim-comment.engine"
 
@@ -18,6 +23,39 @@ local M = {}
 ---@return string
 local function esc(s)
     return (s:gsub("[%^%$%(%)%%%.%[%]%*%+%-%?]", "%%%0"))
+end
+
+--- Drop the PAD space from the FRONT of `s`.
+---
+--- The pad is one SPACE, and it exists only when `padding` is on. With padding OFF the engine
+--- never writes one, so nothing may be taken away: the text after a marker can legitimately
+--- begin with whitespace — a line indented deeper than the range's common indent carries the
+--- difference as its own leading space or tab — and taking a character of that silently
+--- re-indented the line. Measured: with padding off, `{"  a", "    b"}` came back as
+--- `{"  a", "   b"}`, and `{"\ta", "\t\tb"}` lost its tab.
+---
+--- The cost is small and in the other direction: with padding off, a comment written earlier
+--- WITH a pad uncomments to text with one leading space. That is visible and harmless, where a
+--- changed indent is neither.
+---@param s string
+---@param padding boolean
+---@return string
+local function strip_pad_left(s, padding)
+    if not padding then
+        return s
+    end
+    return s:match("^ (.*)$") or s
+end
+
+--- The mirror of strip_pad_left for the space before a closing marker.
+---@param s string
+---@param padding boolean
+---@return string
+local function strip_pad_right(s, padding)
+    if not padding then
+        return s
+    end
+    return s:match("^(.-) $") or s
 end
 
 --- Split a commentstring into its trimmed left/right markers ("<!-- %s -->" → "<!--",
@@ -51,19 +89,25 @@ local function commented(line, el, er)
     return true
 end
 
---- Strip the markers from one commented line (one pad space on each side is absorbed).
---- A marker-only line ("--", "<!-- -->") uncomments to an empty line.
+--- Strip the markers from one commented line (the pad space on each side is absorbed when it
+--- really is a pad — see strip_pad_left). A marker-only line ("--", "<!-- -->") uncomments to an
+--- empty line.
 ---@param line string
 ---@param el string  escaped left marker
 ---@param er string  escaped right marker ("" when none)
+---@param padding boolean  whether a pad space is being written today
 ---@return string
-local function uncomment(line, el, er)
-    local indent, rest = line:match("^(%s*)" .. el .. "%s?(.*)$")
+local function uncomment(line, el, er, padding)
+    local indent, rest = line:match("^(%s*)" .. el .. "(.*)$")
     if not indent then
         return line
     end
+    rest = strip_pad_left(rest, padding)
     if er ~= "" then
-        rest = rest:match("^(.-)%s?" .. er .. "%s*$") or rest
+        local inner = rest:match("^(.-)" .. er .. "%s*$")
+        if inner then
+            rest = strip_pad_right(inner, padding)
+        end
     end
     if rest == "" then
         return ""
@@ -123,7 +167,7 @@ function M.toggle_line(lines, cs, padding)
 
     if any and all then
         for i, line in ipairs(lines) do
-            out[i] = line:match("%S") and uncomment(line, el, er) or line
+            out[i] = line:match("%S") and uncomment(line, el, er, padding) or line
         end
         return out, false
     end
@@ -175,14 +219,22 @@ function M.toggle_block(lines, cs, padding)
     first, last = first or 1, last or #lines
 
     local head, tail = out[first], out[last]
-    local hindent, hrest = head:match("^(%s*)" .. el .. "%s?(.*)$")
+    local hindent, hraw = head:match("^(%s*)" .. el .. "(.*)$")
+    local hrest = hraw and strip_pad_left(hraw, padding) or nil
     if hindent and tail:match(er .. "%s*$") then
+        --- The text before a closing marker, with its pad space dropped when it is one.
+        ---@param s string
+        ---@return string|nil
+        local function before_close(s)
+            local inner = s:match("^(.-)" .. er .. "%s*$")
+            return inner and strip_pad_right(inner, padding) or nil
+        end
         if first == last then
-            local mid = hrest:match("^(.-)%s?" .. er .. "%s*$") or hrest
+            local mid = before_close(hrest) or hrest
             out[first] = mid == "" and "" or hindent .. mid
         else
             out[first] = hrest == "" and "" or hindent .. hrest
-            local stripped = tail:match("^(.-)%s?" .. er .. "%s*$") or tail
+            local stripped = before_close(tail) or tail
             out[last] = stripped:match("%S") and stripped or ""
         end
         return out, false
@@ -213,11 +265,12 @@ function M.toggle_inline(line, scol, ecol, cs, padding)
     local inner = line:sub(scol, ecol)
     local after = line:sub(ecol + 1)
 
-    local mid = inner:match("^" .. el .. "%s?(.*)$")
-    if mid then
-        local stripped = mid:match("^(.-)%s?" .. er .. "$")
-        if stripped then
-            return before .. stripped .. after, false
+    local raw = inner:match("^" .. el .. "(.*)$")
+    if raw then
+        local mid = strip_pad_left(raw, padding)
+        local closed = mid:match("^(.-)" .. er .. "$")
+        if closed then
+            return before .. strip_pad_right(closed, padding) .. after, false
         end
     end
     return before .. l .. pad .. inner .. pad .. r .. after, true
